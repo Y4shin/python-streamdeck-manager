@@ -89,3 +89,41 @@ class Key:
 
   def __str__(self):
     return "(SDKey {})".format(self.name)
+
+
+class Page:
+  """
+  This class represents a page of icons on a Streamdeck.
+  """
+
+  def __init__(self, name, dimensions, logger_id=STANDARD_LOGGER_ID):
+    self.deck_keys = [None] * (dimensions[0] * dimensions[1])
+    self.logger_id = logger_id
+    self.logger    = logging.getLogger(logger_id)
+
+
+  def __str__(self):
+    keys = list(map(lambda x: str(x), self.deck_keys))
+    return json.dumps({"name": self.__name, "type": self.__deck_type, "data": keys})
+
+  def get_key_style(self, key):
+    """
+    Returns styling information for given key.
+    """
+    key = self.deck_keys[key]
+
+    return {
+      "name":  key.name,
+      "icon":  key.icon_pressed  if key.pressed else key.icon_released,
+      "label": key.label_pressed if key.pressed else key.pressed_released
+    }
+
+  def on_press(self, key, deck_man):
+    """
+    Wrapper function that calls callback of given key.
+    """
+    if self.deck_keys[key] is not None:
+      self.deck_keys[key].on_press(self, deck_man)
+    else:
+      self.logger.warning("Key you try to access ({}, {}) is not defined."
+        .format(key // deck_man.key_layout()[1], key % deck_man.key_layout()[1]))
