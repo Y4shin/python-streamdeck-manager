@@ -61,14 +61,30 @@ class Key:
     self.label_pressed  = icon_pressed
     self.label_released = label_released
     self.logger         = logging.getLogger(logger_id)
+    self.logger_id      = logger_id
     self.state          = state
     self.on_press_fun   = on_press
     self.pressed        = False
+    self.logger.info("Key {} created.".format(str(self)))
+    delf.logger.debug(json.dumps({
+        "name": self.name,
+        "icon": {
+          "pressed": self.icon_pressed,
+          "released": self.icon_released
+        },
+        "label": {
+          "pressed": self.label_pressed,
+          "released": self.label_released
+        },
+        "logger": self.logger_id
+      }))
 
   def on_press(self, page, deck_man):
     """
     Wrapper for on_press_fun that already passes key along to callback.
     """
+    self.logger.info("Key {} was {}.".format(str(self),
+      "pressed" if self.pressed else "releassed"))
     self.on_press_fun(self, page, deck_man)
 
   def __str__(self):
