@@ -25,6 +25,21 @@ STANDARD_LOGGER_ID = "streamdeck"
 Standard logger id for new objects if no id was provided.
 """
 
+STANDARD_FONT = "Roboto-Regular.ttf"
+"""
+Standard font for key images.
+"""
+
+STANDARD_FONT_SIZE = 14
+"""
+Standard font size for key images.
+"""
+
+STANDARD_BRIGHTNESS = 50
+"""
+Standard streamdeck brightness.
+"""
+
 def __standard_on_press(key, page, deck_man):
   key.logger.debug("Key {} has been {}, but no callback was assigned."
                    .format(key.name, "pressed" if key.pressed else "released"))
@@ -100,6 +115,7 @@ class Page:
     self.deck_keys = [None] * (dimensions[0] * dimensions[1])
     self.logger_id = logger_id
     self.logger    = logging.getLogger(logger_id)
+    self.name      = name
 
 
   def __str__(self):
@@ -126,4 +142,103 @@ class Page:
       self.deck_keys[key].on_press(self, deck_man)
     else:
       self.logger.warning("Key you try to access ({}, {}) is not defined."
-        .format(key // deck_man.key_layout()[1], key % deck_man.key_layout()[1]))
+        .format(key // deck_man.key_layout()[1],
+                key % deck_man.key_layout()[1]))
+
+class Manager:
+
+  def __key_change_callback(self, deck, key, state):
+    """
+    Callback function that is passed to streamdeck. calls on_press function of
+    key.
+    """
+    if deck == self.deck:
+      dimensions = self.deck.key_layout()
+      row = key // dimensions[1]
+      col = key % dimensions[1]
+      self.logger.debug("Key {}:{} {}.".format(
+        self.page_stash[self.current_page].deck_keys[key].name,
+        self.page_stash[self.current_page].name,
+        ("has been pressed" if state else "has been released")))
+      self.page_stash[self.current_page].deck_keys[key].pressed = state
+      self.page_stash[self.current_page].on_press(key, self)
+      self.update_keys()
+
+
+  def update_keys(self):
+    """
+    Update pictures on all keys.
+    """
+    dimensions = self.deck.key_layout()
+    n_keys = dimensions[0] * dimensions[1]
+    self.__logger.debug("Updating keys")
+    for key in list(range(0, n_keys)):
+      self.__update_key_image(key)
+
+
+  def __update_key_image(self, key):
+    """
+    Updates picture on one key.
+    """
+    dimensions = self.deck.key_layout()
+    n_keys = dimensions[0] * dimensions[1]
+    if key < n_keys:
+      if self.page_stash[self.current_page].deck_keys[key] is not None:
+        key_style = self.page_stash[self.current_page].get_key_style(key)
+        if os.path.isfile(key_style["icon"]):
+          image = self.__render_key_image(key_style["icon"],
+                                          key_style["label"])
+          deck.set_key_image(key, image)
+        else:
+          self.logger.critical("Image {} does not exist!, aborting!"
+            .format(key_style["icon"]))
+          raise IOError("Image {} does not exist!.".format(key_style["icon"]))
+    else:
+      raise ValueError("Key dimensions {} outside of board {}."
+        .format((key // dimensions[1], key % dimensions[0]), dimensions))
+
+  def __render_key_image(self,
+                         icon_file,
+                         label_text,
+                         font_size=None):
+    """
+    Renders image to put onto a key.
+    """
+    image = PILHelper.create_image(self.deck)
+
+    if icon_file is not None:
+      icon = Image.open(icon_file).convert('RGBA')
+      icon.thumbnail((image.width, image.height - 20), Image.LANCZOS)
+      icon_pos = ((image.width - icon.width) // 2, 0)
+      image.paste(icon, icon_pos, icon)
+
+    if label_text is not None:
+      draw = ImageDraw.Draw(image)
+      font = ImageFont.truetype(self.font,
+        font_size if font_size is not None else self.font_size)
+      label_w, label_h = draw.textsize(label_text, font=font)
+      label_pos = ((image.width - label_w) // 2, image.height - 20)
+      draw.text(label_pos, text=label_text, font=font, fill='white')
+
+    return PILHelper.to_native_format(deck, image)
+
+
+
+  def __init__(self, deck, font=STANDARD_FONT, font_size=STANDARD_FONT_SIZE, logger=STANDARD_LOGGER_ID, brightness=STANDARD_BRIGHTNESS):
+    self.deck         = deck
+    self.font         = font
+    self.logger_id    = logger
+    self.logger       = logging.getLogger(self.logger_id)
+    log_formatter     = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+    console_handler   = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+    self.logger.addHandler(console_handler)
+    self.page_stash   = {"main": StreamDeckPage("Default Page", deck_type=self.__type, logger=self.__logger_id)}
+    self.current_page = "main"
+    self.brightness   = brightness
+    self.font_size    = font_size
+    self.deck.open()
+    self.deck.reset()
+    self.deck.set_brightness(self.brightness)
+    self.update_keys()
+    self.deck.set_key_callback(self.__key_change_callback)
