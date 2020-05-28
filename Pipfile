@@ -8,6 +8,9 @@ verify_ssl = true
 [packages]
 streamdeck = "*"
 pillow = "*"
+playsound = "*"
+pipenv = "*"
+obs-websocket-py = "*"
 
 [requires]
 python_version = "3.8"
