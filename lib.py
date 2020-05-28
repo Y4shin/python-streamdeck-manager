@@ -268,3 +268,147 @@ class Manager:
     self.deck.set_brightness(self.brightness)
     self.update_keys()
     self.deck.set_key_callback(self.__key_change_callback)
+
+
+class Parser:
+
+  def __folder_change_callback(self, key, page, deck):
+    """
+    Callback for changing folders.
+    """
+    key.logger.info(str(page))
+    if key.pressed:
+      key.logger.info("Changing folder to {} on release.".format(key.state))
+    else:
+      deck.current_page = key.state
+      key.logger.info("Changed folder to {}.".format(key.state))
+
+  def __empty_callback(self, key, page, deck):
+    """
+    Callback for non-functional key.
+    """
+    key.logger.info("Empty function.")
+
+  def __function_callback(self, key, page, deck):
+    spec = importlib.util.spec_from_file_location("fun_lib", os.path.join(self.config_path, self.callback_source))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    callback = getattr(mod, key.state["function_name"])
+    callback(key, page, deck, parser=self)
+
+
+  def __get_callback(self, key):
+    """
+    Returns the appropriate callback function and state object for giben key.
+    """
+    if key["type"] == "folder":
+      return (self.__folder_change_callback, key["folder"]["name"])
+    elif key["type"] == "empty":
+      return (self.__empty_callback, None)
+    elif key["type"] == "function":
+      return (self.__function_callback, key["function_config"])
+
+  def __populate_pages(self, page, parent=None):
+    """
+    Takes dict of page (read from configuration file) and creates the according
+    data structures
+    """
+    print("populating")
+    self.logger.debug("Populating page {}".format(page["name"]))
+    self.deck_manager.page_stash[page["name"]] =\
+      Page(page["name"], self.deck_manager.deck.key_layout(), logger_id=self.deck_manager.logger_id)
+    dim = self.deck_manager.deck.key_layout()
+    n_keys = dim[0] * dim[1]
+    if parent is not None:
+
+      self.deck_manager.page_stash[page["name"]].deck_keys[0] =\
+        Key(name = page["name"] + str(0),
+            icon_pressed = self.folder_up_img,
+            icon_released = self.folder_up_img,
+            on_press = self.__folder_change_callback,
+            label_pressed = "up",
+            label_released = "up",
+            logger_id = self.deck_manager.logger_id,
+            state = parent)
+    for i in range(len(page["keys"])):
+      index = i if parent is None else i + 1
+      if index < n_keys:
+        json_key = page["keys"][i]
+        name = json_key["name"]
+        if json_key["type"] == "folder":
+          self.__populate_pages(json_key["folder"], parent=page["name"])
+          img_on = self.folder_img
+          img_off = self.folder_img
+        elif "img" in list(json_key.keys()):
+          img_on = json_key["img"]
+          img_off = json_key["img"]
+        else:
+          if "img_on" in list(json_key.keys()):
+            img_on = json_key["img_on"]
+          else:
+            img_on = self.default_img
+          if "img_off" in list(json_key.keys()):
+            img_off = json_key["img_off"]
+          else:
+            img_off = self.default_img
+        if "label" in list(json_key.keys()):
+          label_on = json_key["label"]
+          label_off = json_key["label"]
+        else:
+          if "label_on" in list(json_key.keys()):
+            label_on = json_key["label_on"]
+          else:
+            label_on = self.default_label
+          if "label_off" in list(json_key.keys()):
+            label_off = json_key["label_off"]
+          else:
+            label_off = self.default_label
+        on_press, state = self.__get_callback(json_key)
+        #(self, name="undefined",
+        #               icon_pressed=STANDARD_ICON,
+        #               icon_released=STANDARD_ICON,
+        #               label_pressed=STANDARD_LABEL,
+        #               label_released=STANDARD_LABEL,
+        #               logger_id=STANDARD_LOGGER_ID,
+        #               state=None,
+        #               on_press=EMPTY_ON_PRESS):)
+        self.deck_manager.page_stash[page["name"]].deck_keys[index] =\
+          Key(name = name,
+              icon_pressed = img_on,
+              on_press = on_press,
+              icon_released = img_off,
+              label_pressed = label_on,
+              label_released = label_off,
+              logger_id = self.deck_manager.logger_id,
+              state = state)
+      else:
+        self.logger.error("Key {} is outside of board range of {}."\
+            .format(i, n_keys))
+
+  def __init__(self, filename, deck, logger_id=STANDARD_LOGGER_ID, config_path=os.path.join(os.environ.get('XDG_CONFIG_HOME'), 'streamdeck_manager'), callback_source=None):
+    self.config_path  = config_path
+    self.deck_manager = Manager(deck, config_path=self.config_path)
+    self.logger       = logging.getLogger(logger_id if logger_id is not None else\
+                                                                 DEF_LOGGER)
+    self.callback_source=callback_source
+    print(os.path.join(config_path, filename))
+    with open(os.path.join(config_path, filename)) as json_file:
+      json_obj = json.load(json_file)
+      keys = list(json_obj.keys())
+      print(keys)
+      if set(["page", "folder_up_img", "folder_img"]).issubset(set(keys)):
+        if "default_img" in keys:
+          self.default_img = json_obj["default_keys"]
+        else:
+          self.default_img = STANDARD_ICON
+        if "default_label" in keys:
+          self.default_label = json_obj["default_label"]
+        else:
+          self.default_label = STANDARD_LABEL
+        self.folder_up_img = json_obj["folder_up_img"]
+        self.folder_img = json_obj["folder_img"]
+        json_obj["page"]["name"] = "main"
+        print('keklmao')
+        self.__populate_pages(json_obj["page"])
+        self.deck_manager.current_page = json_obj["page"]["name"]
+        self.deck_manager.update_keys()
